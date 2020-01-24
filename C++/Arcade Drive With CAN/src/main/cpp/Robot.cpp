@@ -74,6 +74,16 @@ class Robot : public frc::TimedRobot {
   
  public:
 
+  void setIdleMode(rev::CANSparkMax::IdleMode mode) {
+    m_leftLeadMotor.SetIdleMode(mode);
+    m_leftFollow1Motor.SetIdleMode(mode);
+    m_leftFollow2Motor.SetIdleMode(mode);
+
+    m_rightLeadMotor.SetIdleMode(mode);
+    m_rightFollow1Motor.SetIdleMode(mode);
+    m_rightFollow2Motor.SetIdleMode(mode);
+  }
+
   void InitDrives() {
     /**
      * The RestoreFactoryDefaults method can be used to reset the configuration parameters
@@ -110,6 +120,9 @@ class Robot : public frc::TimedRobot {
 
     m_leftFollow2Motor.Follow(m_leftLeadMotor);
     m_rightFollow2Motor.Follow(m_rightLeadMotor);
+
+    // set motors to brake mode
+    setIdleMode(rev::CANSparkMax::IdleMode::kBrake);
     
     // set PID coefficients
     m_leftPIDController.SetP(kP);
