@@ -10,6 +10,9 @@
 #include <frc/drive/DifferentialDrive.h>
 #include "rev/CANSparkMax.h"
 #include <frc/SmartDashboard/SmartDashboard.h>
+#include <iostream>
+#include <fstream>
+#include <frc/Timer.h>
 
 class Robot : public frc::TimedRobot {
   /**
@@ -63,6 +66,11 @@ class Robot : public frc::TimedRobot {
   frc::DifferentialDrive m_robotDrive{m_leftLeadMotor, m_rightLeadMotor};
 
   frc::Joystick m_stick{0};
+
+  /**
+   * Output stream to log motor current
+   **/
+  std::ofstream logging_file;
   
  public:
 
@@ -126,8 +134,33 @@ class Robot : public frc::TimedRobot {
     frc::SmartDashboard::PutNumber("Feed Forward", kFF);
     frc::SmartDashboard::PutNumber("Max Output", kMaxOutput);
     frc::SmartDashboard::PutNumber("Min Output", kMinOutput);
+  }
 
+  void LogOutput(double setpoint) {
+    logging_file << frc::Timer::GetFPGATimestamp() << ",";
+    logging_file << setpoint << ",";
+    logging_file << m_leftEncoder.GetPosition() << ",";
+    logging_file << m_rightEncoder.GetPosition() << ",";
+    logging_file << m_leftEncoder.GetVelocity() << ",";
+    logging_file << m_rightEncoder.GetVelocity() << ",";
+    logging_file << m_leftLeadMotor.GetAppliedOutput() << ",";
+    logging_file << m_rightLeadMotor.GetAppliedOutput() << ",";
+    logging_file << m_leftLeadMotor.GetOutputCurrent() << ",";
+    logging_file << m_leftFollow1Motor.GetOutputCurrent() << ",";
+    logging_file << m_leftFollow2Motor.GetOutputCurrent() << ",";
+    logging_file << m_rightLeadMotor.GetOutputCurrent() << ",";
+    logging_file << m_rightFollow1Motor.GetOutputCurrent() << ",";
+    logging_file << m_rightFollow2Motor.GetOutputCurrent();
+    logging_file << "\n";
+  }
 
+  void TeleopInit() {
+    logging_file.open("/home/lvuser/motor_output.csv");
+    logging_file << "Time,SetPoint,LeftEncoder,RightEncoder,LeftSpeed,RightSpeed,LeftOutput,RightOutput,LeftLead,LeftFollow1,LeftFollow2,RightLead,RightFollow1,RightFollow2\n";
+  }
+  
+  void DisabledInit() {
+    logging_file.close();
   }
 
   void RobotInit() {
@@ -202,6 +235,8 @@ class Robot : public frc::TimedRobot {
     frc::SmartDashboard::PutNumber("SetPoint", SetPoint);
     frc::SmartDashboard::PutNumber("LeftProcessVariable", m_leftEncoder.GetVelocity());
     frc::SmartDashboard::PutNumber("RightProcessVariable", m_rightEncoder.GetVelocity());
+
+    LogOutput(SetPoint);
   }
 };
 
