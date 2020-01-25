@@ -13,6 +13,16 @@
 #include <iostream>
 #include <fstream>
 #include <frc/Timer.h>
+#include <frc/XboxController.h>
+
+#include <cmath>
+
+#define DEADBAND_Y 0.02
+#define DEADBAND_X 0.02
+#define DRIVE_MULTIPLIER_X 0.5
+#define DRIVE_MULTIPLIER_Y 1
+
+#define DRIVE_OFFSET_K 1
 
 class Robot : public frc::TimedRobot {
   /**
@@ -50,11 +60,16 @@ class Robot : public frc::TimedRobot {
   rev::CANEncoder m_leftEncoder = m_leftLeadMotor.GetEncoder();
   rev::CANEncoder m_rightEncoder = m_rightLeadMotor.GetEncoder();
 
-  // default PID coefficients
-  double kP = 6e-5, kI = 1e-6, kD = 0, kIz = 0, kFF = 0.000015, kMaxOutput = 1.0, kMinOutput = -1.0;
-
   // motor max RPM
   const double MaxRPM = 5700;
+
+  // default PID coefficients
+    // double kP = 5e-5, kI = 1e-6, kD = 0, kIz = 0, kFF = 0.000156, kMaxOutput = 1.0, kMinOutput = -1.0;
+  double kP = 0, kI = 0, kD = 0, kIz = 0, kFF = 1.0/MaxRPM, kMaxOutput = 1.0, kMinOutput = -1.0;
+
+  double kMaxVel = 1000, kMinVel = 0, kMaxAccel = 1500, kAllError = 0;
+
+  int file_iterator = 0;
 
   /**
    * In RobotInit() below, we will configure m_leftFollowMotor and m_rightFollowMotor to follow 
@@ -63,9 +78,9 @@ class Robot : public frc::TimedRobot {
    * Because of this, we only need to pass the lead motors to m_robotDrive. Whatever commands are 
    * sent to them will automatically be copied by the follower motors
    */
-  frc::DifferentialDrive m_robotDrive{m_leftLeadMotor, m_rightLeadMotor};
+  // frc::DifferentialDrive m_robotDrive{m_leftLeadMotor, m_rightLeadMotor};
 
-  frc::Joystick m_stick{0};
+  frc::XboxController m_GamepadDriver{0};
 
   /**
    * Output stream to log motor current
@@ -103,9 +118,9 @@ class Robot : public frc::TimedRobot {
     m_leftLeadMotor.SetInverted(false);
     m_leftFollow1Motor.SetInverted(false);
     m_leftFollow2Motor.SetInverted(false);
-    m_rightLeadMotor.SetInverted(false);
-    m_rightFollow1Motor.SetInverted(false);
-    m_rightFollow2Motor.SetInverted(false);
+    m_rightLeadMotor.SetInverted(true);
+    m_rightFollow1Motor.SetInverted(true);
+    m_rightFollow2Motor.SetInverted(true);
     
     /**
      * In CAN mode, one SPARK MAX can be configured to follow another. This is done by calling
@@ -122,7 +137,7 @@ class Robot : public frc::TimedRobot {
     m_rightFollow2Motor.Follow(m_rightLeadMotor);
 
     // set motors to brake mode
-    setIdleMode(rev::CANSparkMax::IdleMode::kBrake);
+    setIdleMode(rev::CANSparkMax::IdleMode::kCoast);
     
     // set PID coefficients
     m_leftPIDController.SetP(kP);
@@ -139,6 +154,16 @@ class Robot : public frc::TimedRobot {
     m_rightPIDController.SetFF(kFF);
     m_rightPIDController.SetOutputRange(kMinOutput, kMaxOutput);
 
+    m_rightPIDController.SetSmartMotionMaxVelocity(kMaxVel);
+    m_rightPIDController.SetSmartMotionMinOutputVelocity(kMinVel);
+    m_rightPIDController.SetSmartMotionMaxAccel(kMaxAccel);
+    m_rightPIDController.SetSmartMotionAllowedClosedLoopError(kAllError);
+    
+    m_leftPIDController.SetSmartMotionMaxVelocity(kMaxVel);
+    m_leftPIDController.SetSmartMotionMinOutputVelocity(kMinVel);
+    m_leftPIDController.SetSmartMotionMaxAccel(kMaxAccel);
+    m_leftPIDController.SetSmartMotionAllowedClosedLoopError(kAllError);
+
     // display PID coefficients on SmartDashboard
     frc::SmartDashboard::PutNumber("P Gain", kP);
     frc::SmartDashboard::PutNumber("I Gain", kI);
@@ -149,7 +174,7 @@ class Robot : public frc::TimedRobot {
     frc::SmartDashboard::PutNumber("Min Output", kMinOutput);
   }
 
-  void LogOutput(double setpoint) {
+  void LogOutput(double setpoint, double turnOffset) {
     logging_file << frc::Timer::GetFPGATimestamp() << ",";
     logging_file << setpoint << ",";
     logging_file << m_leftEncoder.GetPosition() << ",";
@@ -163,13 +188,14 @@ class Robot : public frc::TimedRobot {
     logging_file << m_leftFollow2Motor.GetOutputCurrent() << ",";
     logging_file << m_rightLeadMotor.GetOutputCurrent() << ",";
     logging_file << m_rightFollow1Motor.GetOutputCurrent() << ",";
-    logging_file << m_rightFollow2Motor.GetOutputCurrent();
+    logging_file << m_rightFollow2Motor.GetOutputCurrent() << ",";
+    logging_file << turnOffset;
     logging_file << "\n";
   }
 
   void TeleopInit() {
     logging_file.open("/home/lvuser/motor_output.csv");
-    logging_file << "Time,SetPoint,LeftEncoder,RightEncoder,LeftSpeed,RightSpeed,LeftOutput,RightOutput,LeftLead,LeftFollow1,LeftFollow2,RightLead,RightFollow1,RightFollow2\n";
+    logging_file << "Time,SetPoint,LeftEncoder,RightEncoder,LeftSpeed,RightSpeed,LeftOutput,RightOutput,LeftLead,LeftFollow1,LeftFollow2,RightLead,RightFollow1,RightFollow2,TurnOffset\n";
   }
   
   void DisabledInit() {
@@ -182,74 +208,78 @@ class Robot : public frc::TimedRobot {
 
   void TeleopPeriodic() {
 
-    // read PID coefficients from SmartDashboard
-    double p = frc::SmartDashboard::GetNumber("P Gain", 0);
-    double i = frc::SmartDashboard::GetNumber("I Gain", 0);
-    double d = frc::SmartDashboard::GetNumber("D Gain", 0);
-    double iz = frc::SmartDashboard::GetNumber("I Zone", 0);
-    double ff = frc::SmartDashboard::GetNumber("Feed Forward", 0);
-    double max = frc::SmartDashboard::GetNumber("Max Output", 0);
-    double min = frc::SmartDashboard::GetNumber("Min Output", 0);
+    // // read PID coefficients from SmartDashboard
+    // double p = frc::SmartDashboard::GetNumber("P Gain", 0);
+    // double i = frc::SmartDashboard::GetNumber("I Gain", 0);
+    // double d = frc::SmartDashboard::GetNumber("D Gain", 0);
+    // double iz = frc::SmartDashboard::GetNumber("I Zone", 0);
+    // double ff = frc::SmartDashboard::GetNumber("Feed Forward", 0);
+    // double max = frc::SmartDashboard::GetNumber("Max Output", 0);
+    // double min = frc::SmartDashboard::GetNumber("Min Output", 0);
 
-    // if PID coefficients on SmartDashboard have changed, write new values to controller
-    if (p != kP) {
-      m_leftPIDController.SetP(p);
-      m_rightPIDController.SetP(p);
-      kP = p;
-    }
-    if (i != kI) {
-      m_leftPIDController.SetI(i);
-      m_rightPIDController.SetI(i);
-      kI = i;
-    }
-    if (d != kD) {
-      m_leftPIDController.SetD(d);
-      m_rightPIDController.SetD(d);
-      kD = d;
-    }
-    if (iz != kIz) {
-      m_leftPIDController.SetIZone(iz);
-      m_rightPIDController.SetIZone(iz);
-      kIz = iz;
-    }
-    if (ff != kFF) {
-      m_leftPIDController.SetFF(ff);
-      m_rightPIDController.SetFF(ff);
-      kFF = ff;
-    }
-    if((max != kMaxOutput) || (min != kMinOutput)) { 
-      m_leftPIDController.SetOutputRange(min, max); 
-      m_rightPIDController.SetOutputRange(min, max); 
-      kMinOutput = min;
-      kMaxOutput = max; 
-    }
+    // // if PID coefficients on SmartDashboard have changed, write new values to controller
+    // if (p != kP) {
+    //   m_leftPIDController.SetP(p);
+    //   m_rightPIDController.SetP(p);
+    //   kP = p;
+    // }
+    // if (i != kI) {
+    //   m_leftPIDController.SetI(i);
+    //   m_rightPIDController.SetI(i);
+    //   kI = i;
+    // }
+    // if (d != kD) {
+    //   m_leftPIDController.SetD(d);
+    //   m_rightPIDController.SetD(d);
+    //   kD = d;
+    // }
+    // if (iz != kIz) {
+    //   m_leftPIDController.SetIZone(iz);
+    //   m_rightPIDController.SetIZone(iz);
+    //   kIz = iz;
+    // }
+    // if (ff != kFF) {
+    //   m_leftPIDController.SetFF(ff);
+    //   m_rightPIDController.SetFF(ff);
+    //   kFF = ff;
+    // }
+    // if((max != kMaxOutput) || (min != kMinOutput)) { 
+    //   m_leftPIDController.SetOutputRange(min, max); 
+    //   m_rightPIDController.SetOutputRange(min, max); 
+    //   kMinOutput = min;
+    //   kMaxOutput = max; 
+    // }
 
     // read setpoint from joystick and scale by max rpm
-    double SetPoint = MaxRPM * -m_stick.GetY();
 
-    /**
-     * PIDController objects are commanded to a set point using the 
-     * SetReference() method.
-     * 
-     * The first parameter is the value of the set point, whose units vary
-     * depending on the control type set in the second parameter.
-     * 
-     * The second parameter is the control type can be set to one of four 
-     * parameters:
-     *  rev::ControlType::kDutyCycle
-     *  rev::ControlType::kPosition
-     *  rev::ControlType::kVelocity
-     *  rev::ControlType::kVoltage
-     */
+    double joystick_y_value = m_GamepadDriver.GetY(frc::GenericHID::kLeftHand);
+    if (std::abs(joystick_y_value) < DEADBAND_Y) {
+      joystick_y_value = 0;
+    }
     
-    m_leftPIDController.SetReference(SetPoint, rev::ControlType::kVelocity);
-    m_rightPIDController.SetReference(SetPoint, rev::ControlType::kVelocity);
+    double direction_y = (joystick_y_value > 0) ? 1 : -1;
+    double straight_target = MaxRPM * -std::pow(joystick_y_value, 2) * direction_y * DRIVE_MULTIPLIER_Y;
+   
+    double joystick_x_value = m_GamepadDriver.GetX(frc::GenericHID::kRightHand);
+    double direction_x = (joystick_x_value > 0) ? 1 : -1;
+    joystick_x_value = -std::pow(joystick_x_value, 2) * direction_x * DRIVE_MULTIPLIER_X;
+    double turn_target = MaxRPM * joystick_x_value;
+    if (std::abs(joystick_x_value) < DEADBAND_X) {
+      if (std::abs(joystick_y_value) < DEADBAND_Y)
+        turn_target = 0; //if turning, don't use drive straightening
+      else
+        turn_target = (m_leftEncoder.GetVelocity() - m_rightEncoder.GetVelocity()) * DRIVE_OFFSET_K;
+        // Robot tends to curve to the left at 50RPM slower
+    }
+  
+    m_leftPIDController.SetReference(straight_target - turn_target, rev::ControlType::kVelocity);
+    m_rightPIDController.SetReference(straight_target + turn_target, rev::ControlType::kVelocity);
 
-    frc::SmartDashboard::PutNumber("SetPoint", SetPoint);
+    frc::SmartDashboard::PutNumber("SetPoint", straight_target);
     frc::SmartDashboard::PutNumber("LeftProcessVariable", m_leftEncoder.GetVelocity());
     frc::SmartDashboard::PutNumber("RightProcessVariable", m_rightEncoder.GetVelocity());
 
-    LogOutput(SetPoint);
+    LogOutput(straight_target, turn_target);
   }
 };
 
