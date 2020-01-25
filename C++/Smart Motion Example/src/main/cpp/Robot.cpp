@@ -65,12 +65,18 @@ class Robot : public frc::TimedRobot {
   double kP = 5e-5, kI = 1e-6, kD = 0, kIz = 0, kFF = 0.000156, kMaxOutput = 1, kMinOutput = -1;
 
   // default smart motion coefficients
-  double kMaxVel = 2000, kMinVel = 0, kMaxAcc = 1500, kAllErr = 0;
+  double kMaxVel = 5500, kMinVel = 0, kMaxAcc = 5000, kAllErr = 0;
 
   // motor max RPM
   const double MaxRPM = 5700;
 
  public:
+
+  double SetPoint = 0;
+
+  double rightEncoderStart; //starting points for robot start
+  double leftEncoderStart;
+
   void RobotInit() {
     /**
      * The RestoreFactoryDefaults method can be used to reset the configuration parameters
@@ -80,6 +86,9 @@ class Robot : public frc::TimedRobot {
     m_left_lead.RestoreFactoryDefaults();
     m_right_lead.RestoreFactoryDefaults();
 
+    m_right_lead.SetInverted(true);
+    m_right_follow_1.SetInverted(true);
+    m_right_follow_2.SetInverted(true);
     // set PID coefficients
     m_left_pid.SetP(kP);
     m_left_pid.SetI(kI);
@@ -162,15 +171,15 @@ class Robot : public frc::TimedRobot {
     if((maxA != kMaxAcc)) { m_left_pid.SetSmartMotionMaxAccel(maxA); m_right_pid.SetSmartMotionMaxAccel(maxA); kMaxAcc = maxA; }
     if((allE != kAllErr)) { m_left_pid.SetSmartMotionAllowedClosedLoopError(allE); m_right_pid.SetSmartMotionAllowedClosedLoopError(allE); allE = kAllErr; }
 
-    double SetPoint, left_process_var, right_process_var;
+    double left_process_var, right_process_var;
     SetPoint = frc::SmartDashboard::GetNumber("Set Position", 0);
     /**
      * As with other PID modes, Smart Motion is set by calling the
      * SetReference method on an existing pid object and setting
      * the control type to kSmartMotion
      */
-    m_left_pid.SetReference(SetPoint, rev::ControlType::kSmartMotion);
-    m_right_pid.SetReference(SetPoint, rev::ControlType::kSmartMotion);
+    m_left_pid.SetReference(SetPoint + leftEncoderStart, rev::ControlType::kSmartMotion);
+    m_right_pid.SetReference(SetPoint + rightEncoderStart, rev::ControlType::kSmartMotion);
     left_process_var = m_left_encoder.GetPosition();
     right_process_var = m_right_encoder.GetPosition();
     
@@ -180,6 +189,18 @@ class Robot : public frc::TimedRobot {
     frc::SmartDashboard::PutNumber("Left Output", m_left_lead.GetAppliedOutput());
     frc::SmartDashboard::PutNumber("Right Output", m_right_lead.GetAppliedOutput());
   }
+
+  void DisabledInit () {
+    SetPoint = 0;
+    frc::SmartDashboard::PutNumber("Set Point", SetPoint);
+    frc::SmartDashboard::PutNumber("Set Position", SetPoint);
+  }
+
+  void TeleopInit () {
+    rightEncoderStart = m_left_encoder.GetPosition();
+    leftEncoderStart = m_right_encoder.GetPosition();
+  }
+  
 };
 
 #ifndef RUNNING_FRC_TESTS
