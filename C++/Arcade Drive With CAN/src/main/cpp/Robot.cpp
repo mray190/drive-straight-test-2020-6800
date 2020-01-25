@@ -249,21 +249,34 @@ class Robot : public frc::TimedRobot {
     //   kMinOutput = min;
     //   kMaxOutput = max; 
     // }
-
+    double boost_multiplier = 0.5;
     // read setpoint from joystick and scale by max rpm
+    if (m_GamepadDriver.GetRawButton(6)) {
+      boost_multiplier = 1;
+    }
+    else
+    {
+      boost_multiplier = 0.75;
+    }
+    
+    
 
-    double joystick_y_value = m_GamepadDriver.GetY(frc::GenericHID::kLeftHand);
+    double joystick_y_value = m_GamepadDriver.GetTriggerAxis(frc::GenericHID::JoystickHand::kLeftHand) - m_GamepadDriver.GetTriggerAxis(frc::GenericHID::JoystickHand::kRightHand);
     if (std::abs(joystick_y_value) < DEADBAND_Y) {
       joystick_y_value = 0;
     }
     
     double direction_y = (joystick_y_value > 0) ? 1 : -1;
-    double straight_target = MaxRPM * -std::pow(joystick_y_value, 2) * direction_y * DRIVE_MULTIPLIER_Y;
+    double straight_target = MaxRPM * -std::pow(joystick_y_value, 2) * direction_y * DRIVE_MULTIPLIER_Y * boost_multiplier;
    
-    double joystick_x_value = m_GamepadDriver.GetX(frc::GenericHID::kRightHand);
-    double direction_x = (joystick_x_value > 0) ? 1 : -1;
+    double joystick_x_value = m_GamepadDriver.GetX(frc::GenericHID::kLeftHand);
+    double direction_x = (joystick_x_value >= 0) ? 1 : -1;
     joystick_x_value = -std::pow(joystick_x_value, 2) * direction_x * DRIVE_MULTIPLIER_X;
     double turn_target = MaxRPM * joystick_x_value;
+    if (direction_y == 1) {   //for inverting x and y in revese direction
+      turn_target = -turn_target;
+    }
+    
     if (std::abs(joystick_x_value) < DEADBAND_X) {
       if (std::abs(joystick_y_value) < DEADBAND_Y)
         turn_target = 0; //if turning, don't use drive straightening
