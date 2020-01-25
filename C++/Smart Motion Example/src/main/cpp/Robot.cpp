@@ -46,11 +46,21 @@
  */
 
 class Robot : public frc::TimedRobot {
-  static const int deviceID = 9;
-  rev::CANSparkMax m_motor{deviceID, rev::CANSparkMax::MotorType::kBrushless};
-  rev::CANPIDController m_pidController = m_motor.GetPIDController();
-  rev::CANEncoder m_encoder = m_motor.GetEncoder();
+  int left_device_id[3] = {1, 2, 3};
+  int right_device_id[3] = {4, 5, 6};
 
+  rev::CANSparkMax m_left_lead{left_device_id[0], rev::CANSparkMax::MotorType::kBrushless};
+  rev::CANSparkMax m_right_lead{right_device_id[0], rev::CANSparkMax::MotorType::kBrushless};
+  rev::CANSparkMax m_left_follow_1{left_device_id[1], rev::CANSparkMax::MotorType::kBrushless};
+  rev::CANSparkMax m_right_follow_1{right_device_id[1], rev::CANSparkMax::MotorType::kBrushless};
+  rev::CANSparkMax m_left_follow_2{left_device_id[2], rev::CANSparkMax::MotorType::kBrushless};
+  rev::CANSparkMax m_right_follow_2{right_device_id[2], rev::CANSparkMax::MotorType::kBrushless};
+  
+  rev::CANPIDController m_left_pid = m_left_lead.GetPIDController();
+  rev::CANPIDController m_right_pid = m_right_lead.GetPIDController();
+  rev::CANEncoder m_left_encoder = m_left_lead.GetEncoder();
+  rev::CANEncoder m_right_encoder = m_right_lead.GetEncoder();
+  
   // default PID coefficients
   double kP = 5e-5, kI = 1e-6, kD = 0, kIz = 0, kFF = 0.000156, kMaxOutput = 1, kMinOutput = -1;
 
@@ -60,8 +70,6 @@ class Robot : public frc::TimedRobot {
   // motor max RPM
   const double MaxRPM = 5700;
 
-  frc::Joystick m_stick{0};
-
  public:
   void RobotInit() {
     /**
@@ -69,15 +77,24 @@ class Robot : public frc::TimedRobot {
      * in the SPARK MAX to their factory default state. If no argument is passed, these
      * parameters will not persist between power cycles
      */
-    m_motor.RestoreFactoryDefaults();
+    m_left_lead.RestoreFactoryDefaults();
+    m_right_lead.RestoreFactoryDefaults();
 
     // set PID coefficients
-    m_pidController.SetP(kP);
-    m_pidController.SetI(kI);
-    m_pidController.SetD(kD);
-    m_pidController.SetIZone(kIz);
-    m_pidController.SetFF(kFF);
-    m_pidController.SetOutputRange(kMinOutput, kMaxOutput);
+    m_left_pid.SetP(kP);
+    m_left_pid.SetI(kI);
+    m_left_pid.SetD(kD);
+    m_left_pid.SetIZone(kIz);
+    m_left_pid.SetFF(kFF);
+    m_left_pid.SetOutputRange(kMinOutput, kMaxOutput);
+
+    // set PID coefficients
+    m_right_pid.SetP(kP);
+    m_right_pid.SetI(kI);
+    m_right_pid.SetD(kD);
+    m_right_pid.SetIZone(kIz);
+    m_right_pid.SetFF(kFF);
+    m_right_pid.SetOutputRange(kMinOutput, kMaxOutput);
 
     /**
      * Smart Motion coefficients are set on a CANPIDController object
@@ -91,10 +108,15 @@ class Robot : public frc::TimedRobot {
      * - SetSmartMotionAllowedClosedLoopError() will set the max allowed
      * error for the pid controller in Smart Motion mode
      */
-    m_pidController.SetSmartMotionMaxVelocity(kMaxVel);
-    m_pidController.SetSmartMotionMinOutputVelocity(kMinVel);
-    m_pidController.SetSmartMotionMaxAccel(kMaxAcc);
-    m_pidController.SetSmartMotionAllowedClosedLoopError(kAllErr);
+    m_left_pid.SetSmartMotionMaxVelocity(kMaxVel);
+    m_left_pid.SetSmartMotionMinOutputVelocity(kMinVel);
+    m_left_pid.SetSmartMotionMaxAccel(kMaxAcc);
+    m_left_pid.SetSmartMotionAllowedClosedLoopError(kAllErr);
+
+    m_right_pid.SetSmartMotionMaxVelocity(kMaxVel);
+    m_right_pid.SetSmartMotionMinOutputVelocity(kMinVel);
+    m_right_pid.SetSmartMotionMaxAccel(kMaxAcc);
+    m_right_pid.SetSmartMotionAllowedClosedLoopError(kAllErr);
 
     // display PID coefficients on SmartDashboard
     frc::SmartDashboard::PutNumber("P Gain", kP);
@@ -112,9 +134,6 @@ class Robot : public frc::TimedRobot {
     frc::SmartDashboard::PutNumber("Allowed Closed Loop Error", kAllErr);
     frc::SmartDashboard::PutNumber("Set Position", 0);
     frc::SmartDashboard::PutNumber("Set Velocity", 0);
-
-    // button to toggle between velocity and smart motion modes
-    frc::SmartDashboard::PutBoolean("Mode", true);
   }
 
   void TeleopPeriodic() {
@@ -132,37 +151,34 @@ class Robot : public frc::TimedRobot {
     double allE = frc::SmartDashboard::GetNumber("Allowed Closed Loop Error", 0);
 
     // if PID coefficients on SmartDashboard have changed, write new values to controller
-    if((p != kP))   { m_pidController.SetP(p); kP = p; }
-    if((i != kI))   { m_pidController.SetI(i); kI = i; }
-    if((d != kD))   { m_pidController.SetD(d); kD = d; }
-    if((iz != kIz)) { m_pidController.SetIZone(iz); kIz = iz; }
-    if((ff != kFF)) { m_pidController.SetFF(ff); kFF = ff; }
-    if((max != kMaxOutput) || (min != kMinOutput)) { m_pidController.SetOutputRange(min, max); kMinOutput = min; kMaxOutput = max; }
-    if((maxV != kMaxVel)) { m_pidController.SetSmartMotionMaxVelocity(maxV); kMaxVel = maxV; }
-    if((minV != kMinVel)) { m_pidController.SetSmartMotionMinOutputVelocity(minV); kMinVel = minV; }
-    if((maxA != kMaxAcc)) { m_pidController.SetSmartMotionMaxAccel(maxA); kMaxAcc = maxA; }
-    if((allE != kAllErr)) { m_pidController.SetSmartMotionAllowedClosedLoopError(allE); allE = kAllErr; }
+    if((p != kP))   { m_left_pid.SetP(p); m_right_pid.SetP(p); kP = p; }
+    if((i != kI))   { m_left_pid.SetI(i); m_right_pid.SetI(i); kI = i; }
+    if((d != kD))   { m_left_pid.SetD(d); m_right_pid.SetD(d); kD = d; }
+    if((iz != kIz)) { m_left_pid.SetIZone(iz); m_right_pid.SetIZone(iz); kIz = iz; }
+    if((ff != kFF)) { m_left_pid.SetFF(ff); m_right_pid.SetFF(ff); kFF = ff; }
+    if((max != kMaxOutput) || (min != kMinOutput)) { m_left_pid.SetOutputRange(min, max); m_right_pid.SetOutputRange(min, max); kMinOutput = min; kMaxOutput = max; }
+    if((maxV != kMaxVel)) { m_left_pid.SetSmartMotionMaxVelocity(maxV); m_right_pid.SetSmartMotionMaxVelocity(maxV); kMaxVel = maxV; }
+    if((minV != kMinVel)) { m_left_pid.SetSmartMotionMinOutputVelocity(minV); m_right_pid.SetSmartMotionMinOutputVelocity(minV); kMinVel = minV; }
+    if((maxA != kMaxAcc)) { m_left_pid.SetSmartMotionMaxAccel(maxA); m_right_pid.SetSmartMotionMaxAccel(maxA); kMaxAcc = maxA; }
+    if((allE != kAllErr)) { m_left_pid.SetSmartMotionAllowedClosedLoopError(allE); m_right_pid.SetSmartMotionAllowedClosedLoopError(allE); allE = kAllErr; }
 
-    double SetPoint, ProcessVariable;
-    bool mode = frc::SmartDashboard::GetBoolean("Mode", false);
-    if(mode) {
-      SetPoint = frc::SmartDashboard::GetNumber("Set Velocity", 0);
-      m_pidController.SetReference(SetPoint, rev::ControlType::kVelocity);
-      ProcessVariable = m_encoder.GetVelocity();
-    } else {
-      SetPoint = frc::SmartDashboard::GetNumber("Set Position", 0);
-      /**
-       * As with other PID modes, Smart Motion is set by calling the
-       * SetReference method on an existing pid object and setting
-       * the control type to kSmartMotion
-       */
-      m_pidController.SetReference(SetPoint, rev::ControlType::kSmartMotion);
-      ProcessVariable = m_encoder.GetPosition();
-    }
+    double SetPoint, left_process_var, right_process_var;
+    SetPoint = frc::SmartDashboard::GetNumber("Set Position", 0);
+    /**
+     * As with other PID modes, Smart Motion is set by calling the
+     * SetReference method on an existing pid object and setting
+     * the control type to kSmartMotion
+     */
+    m_left_pid.SetReference(SetPoint, rev::ControlType::kSmartMotion);
+    m_right_pid.SetReference(SetPoint, rev::ControlType::kSmartMotion);
+    left_process_var = m_left_encoder.GetPosition();
+    right_process_var = m_right_encoder.GetPosition();
     
     frc::SmartDashboard::PutNumber("Set Point", SetPoint);
-    frc::SmartDashboard::PutNumber("Process Variable", ProcessVariable);
-    frc::SmartDashboard::PutNumber("Output", m_motor.GetAppliedOutput());
+    frc::SmartDashboard::PutNumber("Left Process Variable", left_process_var);
+    frc::SmartDashboard::PutNumber("Right Process Variable", right_process_var);
+    frc::SmartDashboard::PutNumber("Left Output", m_left_lead.GetAppliedOutput());
+    frc::SmartDashboard::PutNumber("Right Output", m_right_lead.GetAppliedOutput());
   }
 };
 
